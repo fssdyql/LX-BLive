@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>lx-blive</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container" id="main-dashboard">
+        <aside class="sidebar">
+            <div class="logo">🎵 lx-blive</div>
+            <div class="status-cards">
+                <div class="card">
+                    <div class="card-title">B站直播间</div>
+                    <div class="card-value" id="bili-status">未连接</div>
+                </div>
+                <div class="card">
+                    <div class="card-title">系统状态 (API/本地)</div>
+                    <div class="card-value" id="lx-status">未连接</div>
+                </div>
+            </div>
+            <div style="flex: 1;"></div>
+            <button id="btn-open-settings" class="btn-primary">系统设置</button>
+        </aside>
+
+        <main class="main-content">
+            <section class="dashboard card">
+                <h2>当前播放</h2>
+                <div class="now-playing">
+                    <div class="song-info">
+                        <h1 id="current-name">等待播放...</h1>
+                        <p id="current-user">点歌人: -</p>
+                    </div>
+                </div>
+                
+                <!-- 搜索操作区 -->
+                <div class="manual-add-row" style="display: flex; gap: 10px; margin-top: 15px; align-items: center;">
+                    <input type="text" id="manual-add-input" placeholder="输入歌名全网搜索并精准点歌..." style="margin: 0; flex: 1; padding: 10px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: white; border-radius: 6px;">
+                    <button id="btn-manual-search" class="btn-primary" style="width: auto;">🔍 全网搜索</button>
+                    <button id="btn-skip" class="btn-danger" style="width: auto;">强制切歌</button>
+                </div>
+                
+                <div class="progress-bar" style="margin-top: 15px;">
+                    <div class="progress-fill" id="progress-fill"></div>
+                </div>
+            </section>
+
+            <div class="grid-2">
+                <section class="queue-panel card">
+                    <h2>播放队列 (<span id="queue-count">0</span>)</h2>
+                    <ul class="queue-list" id="queue-list"></ul>
+                </section>
+                <section class="log-panel card">
+                    <h2>系统日志</h2>
+                    <div class="log-box" id="log-box"></div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <!-- 搜索结果弹窗 -->
+    <div id="search-modal" class="settings-modal hidden" style="z-index: 9999;">
+        <div class="settings-container" style="width: 850px; height: 600px; flex-direction: column; background: #24283b;">
+            <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: space-between; align-items: center;">
+                <h2 style="margin:0;">精准点歌 - 搜索结果</h2>
+                <button id="btn-close-search" class="btn-danger" style="width:auto; padding:5px 15px;">关闭</button>
+            </div>
+            <div style="flex:1; padding: 20px; overflow-y: auto;">
+                <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 14px;">
+                    <thead style="position: sticky; top: 0; background: #24283b; z-index: 1;">
+                        <tr style="border-bottom: 2px solid rgba(255,255,255,0.1);">
+                            <th style="padding: 10px;">歌曲</th>
+                            <th style="padding: 10px;">歌手</th>
+                            <th style="padding: 10px;">专辑</th>
+                            <th style="padding: 10px;">来源</th>
+                            <th style="padding: 10px; text-align: right;">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="search-result-tbody"></tbody>
+                </table>
+                <div id="search-loading" style="text-align:center; padding: 40px; color: #787c99; display: none;">正在跨源拼命搜索中...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 系统设置弹窗 -->
+    <div id="settings-modal" class="settings-modal hidden">
+        <div class="settings-container">
+            <div class="settings-sidebar">
+                <h2 class="settings-title">设置选项</h2>
+                <ul class="settings-menu" id="settings-menu">
+                    <li class="active" data-tab="tab-general">常规设置</li>
+                    <li data-tab="tab-mode">播放模式与插件</li>
+                    <li data-tab="tab-api">Open API 设置</li>
+                    <li data-tab="tab-blive">B站直播间</li>
+                    <li data-tab="tab-perms">权限与防刷</li>
+                    <li data-tab="tab-obs">OBS 输出</li>
+                </ul>
+                <div style="flex: 1;"></div>
+                <div class="settings-actions">
+                    <button id="btn-save-settings" class="btn-primary">保存并应用</button>
+                    <button id="btn-close-settings" class="btn-secondary">关闭</button>
+                </div>
+            </div>
+
+            <div class="settings-content" id="settings-content">
+                <div id="tab-general" class="settings-tab active">
+                    <h3>常规设置</h3>
+                    <div class="form-group checkbox-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="cfg-autoStop"> 播放完毕自动停止播放器
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label>点歌指令前缀</label>
+                        <input type="text" id="cfg-prefix" placeholder="!点歌">
+                    </div>
+                </div>
+
+                <div id="tab-mode" class="settings-tab hidden">
+                    <h3>系统播放策略</h3>
+                    <div class="form-group">
+                        <label>点歌执行引擎</label>
+                        <select id="cfg-playMode" style="width: 100%; padding: 10px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: white; border-radius: 6px;">
+                            <option value="1">模式 1：被动调用 (传统 LX 协议搜歌)</option>
+                            <option value="2">模式 2：半主动 (LX SDK 搜索后精准推送客户端)</option>
+                            <option value="3">模式 3：全主动-LX生态 (脱离客户端，由LX插件解析直放)</option>
+                            <option value="4">模式 4：全主动-MF生态 (脱离客户端，由MusicFree插件直放)</option>
+                        </select>
+                    </div>
+
+                    <!-- LX 插件与搜索源配置区 -->
+                    <div id="section-lx-config">
+                        <div class="form-group" style="margin-top: 15px;">
+                            <label>选择搜索源 (模式 2 & 3 专用)</label>
+                            <div class="checkbox-row" style="display:flex; gap:15px; margin-top:8px; flex-wrap:wrap;">
+                                <label><input type="checkbox" class="source-cb" value="tx"> 腾讯</label>
+                                <label><input type="checkbox" class="source-cb" value="wy"> 网易</label>
+                                <label><input type="checkbox" class="source-cb" value="kg"> 酷狗</label>
+                                <label><input type="checkbox" class="source-cb" value="kw"> 酷我</label>
+                                <label><input type="checkbox" class="source-cb" value="mg"> 咪咕</label>
+                            </div>
+                        </div>
+                        <hr style="border:0; border-top:1px solid rgba(255,255,255,0.1); margin: 20px 0;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                            <h3>LX 解析插件 (模式 3)</h3>
+                            <button id="btn-import-lx" class="btn-secondary" style="width:auto; padding:5px 15px; font-size:12px;">+ 导入 LX 插件</button>
+                        </div>
+                        <div id="lx-list-container" style="background:rgba(0,0,0,0.2); border-radius:6px; padding:10px; min-height:50px; max-height:100px; overflow-y:auto;"></div>
+                    </div>
+
+                    <!-- MF 插件配置区 -->
+                    <div id="section-mf-config" style="display: none;">
+                        <hr style="border:0; border-top:1px solid rgba(255,255,255,0.1); margin: 20px 0;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                            <h3>MusicFree 插件引擎 (模式 4)</h3>
+                            <button id="btn-import-mf" class="btn-secondary" style="width:auto; padding:5px 15px; font-size:12px; background: #7aa2f7; color: #1a1b26;">+ 导入 MF 插件</button>
+                        </div>
+                        <div id="mf-list-container" style="background:rgba(0,0,0,0.2); border-radius:6px; padding:10px; min-height:50px; max-height:100px; overflow-y:auto;"></div>
+                    </div>
+                </div>
+
+                <div id="tab-api" class="settings-tab hidden">
+                    <h3>Open API 设置</h3>
+                    <div class="form-group"><label>LX Music API 端口</label><input type="number" id="cfg-lxPort"></div>
+                    <div class="form-group"><label>刷新频率 (毫秒)</label><input type="number" id="cfg-refreshInterval"></div>
+                    <div class="form-group"><label>提前切歌量 (毫秒)</label><input type="number" id="cfg-advanceTime"></div>
+                </div>
+
+                <div id="tab-blive" class="settings-tab hidden">
+                    <h3>B站直播间配置</h3>
+                    <div class="form-group"><label>直播间 Room ID</label><input type="number" id="cfg-roomId"></div>
+                    <div class="form-group"><label>B站 Cookie</label><textarea id="cfg-cookie" rows="4" style="width: 100%; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: white; border-radius: 6px; padding: 10px;"></textarea></div>
+                </div>
+
+                <div id="tab-perms" class="settings-tab hidden">
+                    <h3>权限设置</h3>
+                    <div class="form-group"><label>主播 UID</label><input type="text" id="cfg-streamerId"></div>
+                    <div class="settings-card-group" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 15px;">
+                        <div class="perm-card" style="background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px;">
+                            <h4 style="margin:0 0 10px 0;">房管</h4>
+                            <input type="number" id="cfg-admin-max" placeholder="上限"><br><br>
+                            <input type="number" id="cfg-admin-cd" placeholder="CD(秒)">
+                        </div>
+                        <div class="perm-card" style="background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px;">
+                            <h4 style="margin:0 0 10px 0;">舰队</h4>
+                            <input type="number" id="cfg-guard-max" placeholder="上限"><br><br>
+                            <input type="number" id="cfg-guard-cd" placeholder="CD(秒)">
+                        </div>
+                        <div class="perm-card" style="background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px;">
+                            <h4 style="margin:0 0 10px 0;">路人</h4>
+                            <input type="number" id="cfg-user-max" placeholder="上限"><br><br>
+                            <input type="number" id="cfg-user-cd" placeholder="CD(秒)">
+                        </div>
+                    </div>
+                </div>
+
+                <div id="tab-obs" class="settings-tab hidden">
+                    <h3>OBS 浏览器源</h3>
+                    <div class="obs-url-card" style="margin-bottom: 15px;"><label>播放器卡片</label><input type="text" readonly value="http://127.0.0.1:8888/player.html" style="width:100%;"></div>
+                    <div class="obs-url-card"><label>播放列表</label><input type="text" readonly value="http://127.0.0.1:8888/queue.html" style="width:100%;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

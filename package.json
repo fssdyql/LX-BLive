@@ -1,0 +1,24 @@
+{
+  "name": "lx-blive",
+  "version": "0.5.0",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "big-integer": "^1.6.52",
+    "cheerio": "^1.2.0",
+    "crypto-js": "^4.2.0",
+    "dayjs": "^1.11.20",
+    "express": "^4.18.2",
+    "he": "^1.2.0",
+    "needle": "^3.5.0",
+    "node-fetch": "^2.7.0",
+    "qs": "^6.15.0",
+    "tiny-bilibili-ws": "latest"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0"
+  }
+}

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><link rel="stylesheet" href="obs.css"></head>
+<body>
+    <div id="player-widget" class="widget-card" style="display: none;">
+        <h2 id="song-name">等待点歌</h2>
+        <p id="song-requester">-</p>
+        <div class="progress-bar"><div class="progress-fill" id="progress"></div></div>
+    </div>
+    <script>
+        const evtSource = new EventSource('/events');
+        const widget = document.getElementById('player-widget');
+        const songName = document.getElementById('song-name');
+        const requester = document.getElementById('song-requester');
+        const progress = document.getElementById('progress');
+        evtSource.addEventListener('nowPlaying', (e) => {
+            const data = JSON.parse(e.data);
+            if (!data) { widget.style.display = 'none'; return; }
+            widget.style.display = 'block';
+            songName.textContent = data.song;
+            requester.textContent = data.requester;
+        });
+        evtSource.addEventListener('progress', (e) => {
+            const data = JSON.parse(e.data);
+            if (data.duration > 0) progress.style.width = `${(data.progress / data.duration) * 100}%`;
+        });
+    </script>
+</body>
+</html>

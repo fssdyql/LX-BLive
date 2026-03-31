@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><link rel="stylesheet" href="obs.css"></head>
+<body>
+    <div class="widget-card">
+        <h3>待播列表 <span id="q-count">0</span></h3>
+        <ul id="q-list"></ul>
+    </div>
+    <script>
+        const evtSource = new EventSource('/events');
+        const list = document.getElementById('q-list');
+        const count = document.getElementById('q-count');
+        evtSource.addEventListener('queueUpdate', (e) => {
+            const data = JSON.parse(e.data);
+            count.textContent = data.queue.length;
+            list.innerHTML = data.queue.slice(0, 5).map((s, i) => `<li>${i+1}. ${s.name} <small>(${s.user})</small></li>`).join('');
+        });
+    </script>
+</body>
+</html>

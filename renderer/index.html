@@ -6,6 +6,19 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <header class="titlebar">
+        <div class="titlebar-logo">
+            <img src="icon.png" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 5px; border-radius: 3px;" onerror="this.style.display='none'"> 
+            <span style="vertical-align: middle;">lx-blive v0.7.2</span>
+        </div>
+        <div class="titlebar-controls">
+            <button class="win-btn" id="win-hide" title="隐藏到托盘">🔽</button>
+            <button class="win-btn" id="win-min" title="最小化">🗕</button>
+            <button class="win-btn" id="win-max" title="最大化/还原">🗖</button>
+            <button class="win-btn win-close" id="win-close" title="关闭退出">✖</button>
+        </div>
+    </header>
+
     <div class="app-container" id="main-dashboard">
         <aside class="sidebar">
             <div class="logo">🎵 lx-blive</div>
@@ -33,7 +46,6 @@
                     </div>
                 </div>
                 
-                <!-- 搜索操作区 -->
                 <div class="manual-add-row" style="display: flex; gap: 10px; margin-top: 15px; align-items: center;">
                     <input type="text" id="manual-add-input" placeholder="输入歌名全网搜索并精准点歌..." style="margin: 0; flex: 1; padding: 10px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: white; border-radius: 6px;">
                     <button id="btn-manual-search" class="btn-primary" style="width: auto;">🔍 全网搜索</button>
@@ -121,7 +133,7 @@
                     <h3>系统播放策略</h3>
                     <div class="form-group">
                         <label>点歌执行引擎</label>
-                        <select id="cfg-playMode" style="width: 100%; padding: 10px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: white; border-radius: 6px;">
+                        <select id="cfg-playMode">
                             <option value="1">模式 1：被动调用 (传统 LX 协议搜歌)</option>
                             <option value="2">模式 2：半主动 (LX SDK 搜索后精准推送客户端)</option>
                             <option value="3">模式 3：全主动-LX生态 (脱离客户端，由LX插件解析直放)</option>
@@ -196,9 +208,11 @@
                 </div>
 
                 <div id="tab-obs" class="settings-tab hidden">
-                    <h3>OBS 浏览器源</h3>
-                    <div class="obs-url-card" style="margin-bottom: 15px;"><label>播放器卡片</label><input type="text" readonly value="http://127.0.0.1:8888/player.html" style="width:100%;"></div>
-                    <div class="obs-url-card"><label>播放列表</label><input type="text" readonly value="http://127.0.0.1:8888/queue.html" style="width:100%;"></div>
+                    <h3>OBS 浏览器源配置</h3>
+                    <p style="color: #a6adc8; font-size: 13px; margin-bottom: 15px;">请在 OBS 中添加【浏览器】源，并输入以下地址：</p>
+                    <div class="obs-url-card" style="margin-bottom: 15px;"><label>点歌弹窗提示</label><input type="text" readonly value="http://127.0.0.1:8888/alert.html" style="width:100%;"></div>
+                    <div class="obs-url-card" style="margin-bottom: 15px;"><label>播放器状态卡片</label><input type="text" readonly value="http://127.0.0.1:8888/player.html" style="width:100%;"></div>
+                    <div class="obs-url-card"><label>待播队列列表</label><input type="text" readonly value="http://127.0.0.1:8888/queue.html" style="width:100%;"></div>
                 </div>
             </div>
         </div>

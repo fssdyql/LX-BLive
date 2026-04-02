@@ -1,4 +1,8 @@
-// --- 基础 UI 元素 ---
+document.getElementById('win-hide').onclick = () => window.api.windowHide();
+document.getElementById('win-min').onclick = () => window.api.windowMin();
+document.getElementById('win-max').onclick = () => window.api.windowMax();
+document.getElementById('win-close').onclick = () => window.api.windowClose();
+
 const biliStatusEl = document.getElementById('bili-status');
 const lxStatusEl = document.getElementById('lx-status');
 const currentNameEl = document.getElementById('current-name');
@@ -8,7 +12,6 @@ const logBoxEl = document.getElementById('log-box');
 const queueListEl = document.getElementById('queue-list');
 const queueCountEl = document.getElementById('queue-count');
 
-// --- 弹窗与设置 ---
 const settingsModal = document.getElementById('settings-modal');
 const searchModal = document.getElementById('search-modal');
 const btnOpenSettings = document.getElementById('btn-open-settings');
@@ -24,17 +27,14 @@ const menuItems = document.querySelectorAll('.settings-menu li');
 const tabs = document.querySelectorAll('.settings-tab');
 const cfgPlayMode = document.getElementById('cfg-playMode');
 
-// --- 播放器 (用于模式 3/4 本地输出) ---
 const localAudio = new Audio();
 localAudio.autoplay = true;
 
-// ======= 1. 模式切换显示逻辑 =======
 cfgPlayMode.addEventListener('change', () => {
     const val = parseInt(cfgPlayMode.value);
     document.getElementById('section-lx-config').style.display = (val === 2 || val === 3) ? 'block' : 'none';
     document.getElementById('section-mf-config').style.display = (val === 4) ? 'block' : 'none';
     
-    // 动态修改搜索框提示语和按钮文字
     if (val === 1) {
         document.getElementById('manual-add-input').placeholder = "输入歌名直接模糊添加点歌 (模式 1)...";
         btnManualSearch.textContent = "➕ 直接添加";
@@ -44,7 +44,6 @@ cfgPlayMode.addEventListener('change', () => {
     }
 });
 
-// ======= 2. 插件列表渲染 =======
 function renderLxList(plugins) {
     const container = document.getElementById('lx-list-container');
     container.innerHTML = '';
@@ -91,7 +90,6 @@ document.getElementById('btn-import-mf').addEventListener('click', async () => {
     else if (res?.msg) alert("MF导入失败: " + res.msg);
 });
 
-// ======= 3. 设置保存与加载 =======
 async function loadConfigToUI() {
     const config = await window.api.getConfig();
     if (!config) return;
@@ -144,13 +142,14 @@ btnSaveSettings.addEventListener('click', async () => {
     settingsModal.classList.add('hidden');
 });
 
-// ======= 4. 核心功能：切歌与手动搜索 =======
 btnSkip.addEventListener('click', () => {
     window.api.skipSong();
     addLog("控制", "已发送强制切歌指令");
 });
 
 let currentSearchResults =[];
+// 🌟 平台优先级权重
+const sourcePriorityMap = { 'tx': 5, 'wy': 4, 'kg': 3, 'kw': 2, 'mg': 1 };
 
 btnManualSearch.addEventListener('click', async () => {
     const keywordInput = document.getElementById('manual-add-input');
@@ -160,41 +159,73 @@ btnManualSearch.addEventListener('click', async () => {
     const config = await window.api.getConfig();
     const mode = parseInt(config.general.playMode) || 1;
 
-    // 模式一：直接添加，不弹出搜索框
     if (mode === 1) {
         window.api.manualAdd(keyword, "主播后台");
         keywordInput.value = '';
         return;
     }
 
-    // 模式 2/3/4：弹出全网搜索界面
     searchModal.classList.remove('hidden');
     searchResultTbody.innerHTML = '';
     searchLoading.style.display = 'block';
-    currentSearchResults =[];
+    let tempResults =[];
 
     try {
         if (mode === 4) {
             const results = await window.api.mfSearchAll(keyword);
-            currentSearchResults = results.map(item => ({
+            tempResults = results.map(item => ({
                 name: item.title, singer: item.artist, album: item.album || '-', source: item._platform, rawData: item
             }));
         } else {
-            const platforms = config.general.searchSources || ['tx', 'wy', 'kg', 'kw', 'mg'];
+            const platforms = config.general.searchSources ||['tx', 'wy', 'kg', 'kw', 'mg'];
             await Promise.allSettled(platforms.map(async (plat) => {
-                const res = await window.api.search(plat, keyword, 1);
-                let list = Array.isArray(res?.parsed) ? res.parsed : (res?.parsed?.list || res?.raw?.data?.lists || (Array.isArray(res) ? res :[]));
-                list.forEach(item => {
-                    currentSearchResults.push({
-                        name: item.name || item.songname || item.filename,
-                        singer: item.singer || item.singername || item.author_name,
-                        album: item.albumName || item.album || '-',
-                        source: plat,
-                        rawData: item
+                try {
+                    const res = await window.api.search(plat, keyword, 1);
+                    let list = Array.isArray(res?.parsed) ? res.parsed : (res?.parsed?.list || res?.raw?.data?.lists || (Array.isArray(res) ? res :[]));
+                    list.forEach(item => {
+                        tempResults.push({
+                            name: item.name || item.songname || item.filename || '',
+                            singer: item.singer || item.singername || item.author_name || '',
+                            album: item.albumName || item.album || '-',
+                            source: plat,
+                            rawData: item
+                        });
                     });
-                });
+                } catch(e) {}
             }));
         }
+
+        // 🌟 核心排序：优先分数，同分按优先级 (tx>wy>kg>kw>mg)
+        tempResults.sort((a, b) => {
+            const getScore = (item) => {
+                let s = 0;
+                const n = (item.name || '').toLowerCase();
+                const art = (item.singer || '').toLowerCase();
+                const kw = keyword.toLowerCase();
+                
+                if (n === kw) s += 100;
+                else if (n.startsWith(kw)) s += 80;
+                else if (n.includes(kw)) s += 50;
+                
+                if (art === kw) s += 40;
+                else if (art.includes(kw)) s += 20;
+                
+                return s;
+            };
+            const scoreA = getScore(a);
+            const scoreB = getScore(b);
+            
+            if (scoreA !== scoreB) {
+                return scoreB - scoreA;
+            }
+            
+            // 相关性一样时，引入源优先级判定
+            const pA = sourcePriorityMap[a.source] || 0;
+            const pB = sourcePriorityMap[b.source] || 0;
+            return pB - pA;
+        });
+
+        currentSearchResults = tempResults;
 
         searchLoading.style.display = 'none';
         if (currentSearchResults.length === 0) {
@@ -227,33 +258,50 @@ window.addFromSearch = (index) => {
     }
 };
 
-// ======= 5. 通信监听与后台处理 =======
-
-// 🌟 处理 Mode 2/3 的后台跨源弹幕点歌搜索请求
 window.api.onBotRequestSearch(async (data) => {
     const { reqId, keyword } = data;
     const config = await window.api.getConfig();
-    const platforms = config.general.searchSources || ['tx', 'wy', 'kg', 'kw', 'mg'];
+    const platforms = config.general.searchSources ||['tx', 'wy', 'kg', 'kw', 'mg'];
     
     let allResults =[];
     await Promise.allSettled(platforms.map(async (plat) => {
         try {
             const res = await window.api.search(plat, keyword, 1);
             let list = Array.isArray(res?.parsed) ? res.parsed : (res?.parsed?.list || res?.raw?.data?.lists || (Array.isArray(res) ? res :[]));
-            list.forEach(item => {
-                item._platform = plat;
-                allResults.push(item);
-            });
+            list.forEach(item => { item._platform = plat; allResults.push(item); });
         } catch(e) {}
     }));
 
-    let best = allResults.find(s => {
-        const n = (s.name || s.songname || s.filename || '').toLowerCase();
-        const si = (s.singer || s.singername || s.author_name || '').toLowerCase();
-        return n.includes(keyword.toLowerCase()) || si.includes(keyword.toLowerCase());
+    allResults.sort((a, b) => {
+        const getScore = (item) => {
+            let s = 0;
+            const n = (item.name || item.songname || item.filename || '').toLowerCase();
+            const art = (item.singer || item.singername || item.author_name || '').toLowerCase();
+            const kw = keyword.toLowerCase();
+            
+            if (n === kw) s += 100;
+            else if (n.startsWith(kw)) s += 80;
+            else if (n.includes(kw)) s += 50;
+            
+            if (art === kw) s += 40;
+            else if (art.includes(kw)) s += 20;
+            
+            return s;
+        };
+        const scoreA = getScore(a);
+        const scoreB = getScore(b);
+        
+        if (scoreA !== scoreB) {
+            return scoreB - scoreA;
+        }
+        
+        // 相关性一样时，引入源优先级判定
+        const pA = sourcePriorityMap[a._platform] || 0;
+        const pB = sourcePriorityMap[b._platform] || 0;
+        return pB - pA;
     });
-    if (!best && allResults.length > 0) best = allResults[0];
 
+    let best = allResults.length > 0 ? allResults[0] : null;
     window.api.sendBotSearchResult(reqId, best);
 });
 
@@ -304,7 +352,6 @@ function addLog(t, m) {
     logBoxEl.scrollTop = logBoxEl.scrollHeight;
 }
 
-// 本地播放器事件 (模式 3/4)
 localAudio.addEventListener('timeupdate', () => { 
     if (localAudio.duration) {
         window.api.sendLocalAudioProgress({ 
@@ -320,7 +367,6 @@ window.api.onPlayLocalAudio((url) => {
     localAudio.src = typeof url === 'string' ? url : url.url; 
 });
 
-// ======= 6. 初始化运行 =======
 document.addEventListener('DOMContentLoaded', () => {
     loadConfigToUI();
     

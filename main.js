@@ -1,7 +1,7 @@
 if (typeof global.File === 'undefined') {
     global.File = class { constructor() { throw new Error('File polyfill not implemented'); } };
 }
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -9,13 +9,11 @@ const MusicBot = require('./core/MusicBot');
 const OBSServer = require('./core/OBSServer');
 const ConfigManager = require('./core/ConfigManager');
 
-// 🌟 1. 加载 LX SDK
 const platforms =['tx', 'wy', 'kg', 'kw', 'mg'];
 platforms.forEach(p => {
     try { require(path.join(__dirname, 'musicsdk', `lx-${p}.js`)); } catch (e) { }
 });
 
-// 🌟 2. 准备 MusicFree 插件模拟环境
 const cheerio = require('cheerio');
 const CryptoJS = require('crypto-js');
 const axios = require('axios');
@@ -27,21 +25,52 @@ const he = require('he');
 const mfPackages = { 'cheerio': cheerio, 'crypto-js': CryptoJS, 'axios': axios, 'dayjs': dayjs, 'big-integer': bigInt, 'qs': qs, 'he': he };
 const mfRequire = (name) => { const pkg = mfPackages[name]; if (pkg) { pkg.default = pkg; return pkg; } return null; };
 
-let loadedMfPlugins = {}; // 存储所有 MF 插件实例
-let sandboxes = {};       // 存储所有 LX 插件沙盒
+let loadedMfPlugins = {}; 
+let sandboxes = {};       
 let pendingRequests = {};
 
 let mainWindow;
+let tray = null;
 const bot = new MusicBot();
 const obs = new OBSServer();
+
+// 🌟 读取根目录下的 icon.png 作为全局图标
+const iconPath = path.join(__dirname, 'icon.png');
+
+function createTray() {
+    let trayIcon;
+    if (fs.existsSync(iconPath)) {
+        trayIcon = nativeImage.createFromPath(iconPath);
+    } else {
+        // 如果用户忘了放图片，使用默认隐形占位符防崩溃
+        const iconBase64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAGFJREFUOE9jZKAQMELp/1TQD8ZgGpGGEQ0DBgasCgwMDAwMDDAFYBqRBbHqRBbEqhNZAKtOZAGsOpEFsOpEFsCqE1kAq05kQYI6cTUYmUbEo2FEMAwYmECRzUeR1E4jMhEA/1s2AYlYcR4AAAAASUVORK5CYII=";
+        trayIcon = nativeImage.createFromDataURL(iconBase64);
+    }
+    
+    tray = new Tray(trayIcon);
+    const contextMenu = Menu.buildFromTemplate([
+        { label: '显示主界面', click: () => { mainWindow.show(); mainWindow.restore(); } },
+        { label: '退出程序', click: () => { app.quit(); } }
+    ]);
+    tray.setToolTip('lx-blive 弹幕点歌');
+    tray.setContextMenu(contextMenu);
+
+    tray.on('click', () => {
+        if (!mainWindow.isVisible()) { mainWindow.show(); }
+        else if (mainWindow.isMinimized()) { mainWindow.restore(); }
+        else { mainWindow.hide(); }
+    });
+}
 
 function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1050, height: 780, minWidth: 950, minHeight: 700,
+        frame: false, 
+        icon: fs.existsSync(iconPath) ? iconPath : undefined, // 🌟 任务栏图标
         webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
-        titleBarStyle: 'hiddenInset', backgroundColor: '#1e1e2e', show: false
+        backgroundColor: '#1e1e2e', show: false
     });
-    mainWindow.loadFile('renderer/index.html');
+    mainWindow.loadFile('renderer/index.html'); 
     mainWindow.setMenuBarVisibility(false);
     mainWindow.once('ready-to-show', () => { mainWindow.show(); initPlugins(); });
 
@@ -53,13 +82,12 @@ function createWindow() {
     bot.on('bili-status', (s) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('bili-status', s); });
     bot.on('lx-status', (s) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('lx-status', s); });
     bot.on('lx-progress', (p) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('lx-progress', p); obs.broadcast('progress', { progress: p.progress, duration: p.duration }); });
+    bot.on('alert', (data) => obs.broadcast('alert', data));
 
-    // Mode 2/3 弹幕点歌搜索
     bot.on('trigger-internal-search', (song) => {
         if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('bot-request-search', { reqId: song.id, keyword: song.name });
     });
     
-    // Mode 3 LX 插件解析
     bot.on('trigger-plugin-resolve', async ({ platform, songInfo }) => {
         const boxes = Object.values(sandboxes);
         if (boxes.length === 0) { bot.emit('log', `[错误] 未挂载任何 LX 插件！`); bot.playNext(); return; }
@@ -69,7 +97,6 @@ function createWindow() {
         } catch(e) { bot.emit('log', `[LX解析失败] 所有插件无可用解析`); bot.playNext(); }
     });
 
-    // 🌟 Mode 4 弹幕点歌搜索 (后台跨所有 MF 插件并发)
     bot.on('trigger-mf-search-match', async (song) => {
         const keys = Object.keys(loadedMfPlugins);
         if (keys.length === 0) { bot.emit('log', '[MF模式] 错误：未导入任何 MF 插件！'); return bot.playNext(); }
@@ -80,9 +107,7 @@ function createWindow() {
                 const plugin = loadedMfPlugins[plat].instance;
                 if (!plugin.search) return;
                 const res = await plugin.search(song.name, 1, 'music');
-                if (res && res.data) {
-                    res.data.forEach(item => { item._platform = plat; allResults.push(item); });
-                }
+                if (res && res.data) { res.data.forEach(item => { item._platform = plat; allResults.push(item); }); }
             } catch(e) {}
         }));
 
@@ -102,36 +127,26 @@ function createWindow() {
         }
     });
 
-    // 🌟 Mode 4 MF 插件解析播放
     bot.on('trigger-mf-resolve', async ({ platform, songInfo }) => {
         const pluginWrap = loadedMfPlugins[platform];
-        if (!pluginWrap || !pluginWrap.instance.getMediaSource) {
-            bot.emit('log', `[MF解析失败] 插件 ${platform} 不存在或不支持解析`);
-            return bot.playNext();
-        }
+        if (!pluginWrap || !pluginWrap.instance.getMediaSource) { bot.emit('log', `[MF解析失败] 插件不支持`); return bot.playNext(); }
         try {
             const result = await pluginWrap.instance.getMediaSource(songInfo, 'standard');
-            if (result && result.url) {
-                if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('play-local-audio', result.url);
-            } else {
-                bot.emit('log', `[MF解析失败] 获取不到播放链接`); bot.playNext();
-            }
-        } catch(e) {
-            bot.emit('log', `[MF解析异常] ${e.message}`); bot.playNext();
-        }
+            if (result && result.url) { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('play-local-audio', result.url); } 
+            else { bot.emit('log', `[MF解析失败] 获取不到播放链接`); bot.playNext(); }
+        } catch(e) { bot.emit('log', `[MF解析异常] ${e.message}`); bot.playNext(); }
     });
 
     bot.reloadConfig();
+    createTray();
 }
 
-// ============== 插件初始化 ==============
 function initPlugins() {
     const config = ConfigManager.get();
     if(config.plugins) config.plugins.forEach(p => { if (fs.existsSync(p)) loadPluginIntoSandbox(p); });
     if(config.mfPlugins) config.mfPlugins.forEach(p => { if (fs.existsSync(p)) loadMFPlugin(p); });
 }
 
-// ============== LX Sandbox ==============
 function loadPluginIntoSandbox(filePath) {
     try {
         const scriptCode = fs.readFileSync(filePath, 'utf-8');
@@ -156,7 +171,6 @@ function requestSandbox(sb, platform, songInfo, quality) {
     });
 }
 
-// ============== MF Engine ==============
 function loadMFPlugin(filePath) {
     try {
         const funcCode = fs.readFileSync(filePath, 'utf-8');
@@ -164,12 +178,8 @@ function loadMFPlugin(filePath) {
         const env = { getUserVariables: () => ({}), os: process.platform, appVersion: 'lx-blive-1.0', lang: 'zh-CN' };
         const _process = { platform: process.platform, version: process.versions.node, env };
         
-        Function(`
-            'use strict';
-            return function(require, __musicfree_require, module, exports, console, env, process) {
-                ${funcCode}
-            }
-        `)()(mfRequire, mfRequire, _module, _module.exports, console, env, _process);
+        Function(`'use strict'; return function(require, __musicfree_require, module, exports, console, env, process) { ${funcCode} }`)()
+        (mfRequire, mfRequire, _module, _module.exports, console, env, _process);
 
         const instance = _module.exports.default ? _module.exports.default : _module.exports;
         if (instance && instance.platform) {
@@ -180,9 +190,11 @@ function loadMFPlugin(filePath) {
     } catch (err) { return { success: false, msg: err.message }; }
 }
 
-// ============== IPC API ==============
+ipcMain.on('window-hide', () => mainWindow.hide());
+ipcMain.on('window-min', () => mainWindow.minimize());
+ipcMain.on('window-max', () => { if (mainWindow.isMaximized()) mainWindow.unmaximize(); else mainWindow.maximize(); });
+ipcMain.on('window-close', () => app.quit()); 
 
-// 导入 MF 插件
 ipcMain.handle('import-mf-plugin', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog({ properties: ['openFile'], filters:[{ name: 'Javascript', extensions: ['js'] }] });
     if (canceled || filePaths.length === 0) return { success: false };
@@ -198,13 +210,11 @@ ipcMain.handle('import-mf-plugin', async () => {
 ipcMain.handle('remove-mf-plugin', (event, pathToRemove) => {
     let cfg = ConfigManager.get();
     if(cfg.mfPlugins) { cfg.mfPlugins = cfg.mfPlugins.filter(p => p !== pathToRemove); ConfigManager.save(cfg); }
-    // 释放内存
     const plat = Object.keys(loadedMfPlugins).find(k => loadedMfPlugins[k].path === pathToRemove);
     if(plat) delete loadedMfPlugins[plat];
     return { success: true };
 });
 
-// UI 并发 MF 搜索接口
 ipcMain.handle('mf-search-all', async (event, keyword) => {
     let allResults =[];
     const keys = Object.keys(loadedMfPlugins);
@@ -222,7 +232,6 @@ ipcMain.handle('mf-search-all', async (event, keyword) => {
     return allResults;
 });
 
-// 其他 IPC
 ipcMain.handle('import-source', async () => { 
     const { canceled, filePaths } = await dialog.showOpenDialog({ properties:['openFile'], filters:[{ name: 'Javascript', extensions: ['js'] }] });
     if (canceled || filePaths.length === 0) return { success: false };
@@ -241,8 +250,6 @@ ipcMain.handle('save-config', (event, newConfig) => { ConfigManager.save(newConf
 ipcMain.handle('skip-song', () => bot.playNext());
 ipcMain.handle('remove-song', (event, songId) => bot.removeFromQueue(songId));
 ipcMain.handle('manual-add-direct', (event, songObj, user) => bot.manualAddDirect(songObj, user));
-
-// 🌟 这里补充了模式一“直接添加”所需的 IPC 接口注册 🌟
 ipcMain.handle('manual-add', (event, name, user) => bot.manualAdd(name, user));
 
 ipcMain.on('sandbox-event', (event, type, data) => {
@@ -258,5 +265,14 @@ ipcMain.on('local-audio-progress', (event, data) => {
 });
 
 app.whenReady().then(() => { createWindow(); app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); }); });
+
+app.on('will-quit', () => {
+    for (let id in sandboxes) {
+        if (sandboxes[id] && !sandboxes[id].isDestroyed()) sandboxes[id].destroy();
+    }
+    if (obs.server) obs.server.close();
+    process.exit(0);
+});
+
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 process.on('uncaughtException', () => {});

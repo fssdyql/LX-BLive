@@ -1,20 +1,21 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
+    // 🌟 新增窗口控制
+    windowHide: () => ipcRenderer.send('window-hide'),
+    windowMin: () => ipcRenderer.send('window-min'),
+    windowMax: () => ipcRenderer.send('window-max'),
+    windowClose: () => ipcRenderer.send('window-close'),
+
     getConfig: () => ipcRenderer.invoke('get-config'),
     saveConfig: (config) => ipcRenderer.invoke('save-config', config),
-skipSong: () => ipcRenderer.invoke('skip-song'),
+    skipSong: () => ipcRenderer.invoke('skip-song'),
     manualAdd: (name, user) => ipcRenderer.invoke('manual-add', name, user),
     removeSong: (id) => ipcRenderer.invoke('remove-song', id),
-    
-    // 精准添加 (携带对象)
     manualAddDirect: (songObj, user) => ipcRenderer.invoke('manual-add-direct', songObj, user),
     
-    // LX 插件管理
     importSource: () => ipcRenderer.invoke('import-source'),
     removePlugin: (path) => ipcRenderer.invoke('remove-plugin', path),
-    
-    // MF 插件管理及搜索
     importMfPlugin: () => ipcRenderer.invoke('import-mf-plugin'),
     removeMfPlugin: (path) => ipcRenderer.invoke('remove-mf-plugin', path),
     mfSearchAll: (keyword) => ipcRenderer.invoke('mf-search-all', keyword),
@@ -26,7 +27,6 @@ skipSong: () => ipcRenderer.invoke('skip-song'),
     onLxProgress: (cb) => ipcRenderer.on('lx-progress', (e, data) => cb(data)),
     onLog: (cb) => ipcRenderer.on('log', (e, data) => cb(data)),
 
-    // LX 搜索方法
     search: async (platform, keyword, page = 1) => {
         if (platform === 'tx') return await ipcRenderer.invoke('tx-api', 'search', keyword, page);
         if (platform === 'wy') return await ipcRenderer.invoke('wy-api-call', 'search', keyword, page);

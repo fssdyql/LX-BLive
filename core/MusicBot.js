@@ -95,6 +95,9 @@ class MusicBot extends EventEmitter {
         this.queue.push({ id: Date.now(), uid, user: uname, name: songName, role, isAccurate: false });
         this.emit('queue-update', this.queue);
         this.emit('log', `[弹幕点歌][${role}] ${uname}: ${songName}`);
+        
+        this.emit('alert', { type: 'add', user: uname, song: songName });
+
         if (!this.currentSong) this.playNext();
     }
 
@@ -102,22 +105,22 @@ class MusicBot extends EventEmitter {
         this.queue.push({ id: Date.now(), uid: 'manual', user: userName, name: songName, role: 'admin', isAccurate: false });
         this.emit('queue-update', this.queue);
         this.emit('log', `[手动添加] ${userName}: ${songName}`);
+        
+        this.emit('alert', { type: 'add', user: userName, song: songName });
+        
         if (!this.currentSong) this.playNext();
     }
 
     manualAddDirect(songObj, userName) {
         this.queue.push({ 
-            id: Date.now(), 
-            uid: 'manual', 
-            user: userName, 
-            name: songObj.name, 
-            role: 'admin', 
-            isAccurate: true,
-            exactData: songObj.rawData,
-            source: songObj.source
+            id: Date.now(), uid: 'manual', user: userName, name: songObj.name, role: 'admin', 
+            isAccurate: true, exactData: songObj.rawData, source: songObj.source
         });
         this.emit('queue-update', this.queue);
         this.emit('log', `[精准点播] ${userName}: ${songObj.name} (${songObj.source.toUpperCase()})`);
+        
+        this.emit('alert', { type: 'add', user: userName, song: songObj.name });
+        
         if (!this.currentSong) this.playNext();
     }
 
@@ -181,7 +184,7 @@ class MusicBot extends EventEmitter {
         }
     }
 
-    // 🌟 核心修复：完美构建洛雪严格校验的音质对象，解决 kg hash missing/type match 问题
+    // 🌟 核心改进：针对 wy (网易云) "quality no match" 重新清洗对象格式
     formatPluginSongInfo(song, forceSource) {
         let source = String(forceSource || song._platform || song.source || 'kw');
 
@@ -202,26 +205,42 @@ class MusicBot extends EventEmitter {
         let coreId = String(song.songId || song.songid || song.id || song.songmid || song.MUSICRID || song.hash || song.FileHash || Date.now());
         if (source === 'kw') coreId = coreId.replace('MUSIC_', '');
 
-        // 构造 types 和 _types（洛雪强制音质校验）
-        let types = song.types ||[{ type: '128k', size: '3MB' }];
-        let _types = song._types || {};
-        
-        // 如果原数据没有 _types，手动生成一个
-        if (Object.keys(_types).length === 0) {
-            types.forEach(t => {
-                _types[t.type] = { size: t.size || '3MB' };
+        // 🌟 彻底清洗 types 和 _types 数据结构，确保 LX 校验 100% 通过
+        let rawTypes = song.types || [];
+        let cleanTypes =[];
+        let clean_Types = {};
+
+        if (Array.isArray(rawTypes)) {
+            rawTypes.forEach(t => {
+                if (typeof t === 'string') {
+                    // 如果源返回的是 ['128k', '320k'] 这种脏字符串，强制转为对象
+                    cleanTypes.push({ type: t, size: '3MB' });
+                    clean_Types[t] = { size: '3MB' };
+                } else if (typeof t === 'object' && t.type) {
+                    cleanTypes.push({ type: t.type, size: t.size || '3MB', hash: t.hash || '' });
+                    clean_Types[t.type] = { size: t.size || '3MB', hash: t.hash || '' };
+                }
             });
         }
 
-        // 🌟 针对酷狗 (kg)，强制在所有音质中注入 hash，且必须是 String 类型！
+        // 如果清洗后啥也没有（比如 wy 有时压根没返回这个字段），强制注入 128k
+        if (cleanTypes.length === 0) {
+            cleanTypes.push({ type: '128k', size: '3MB' });
+            clean_Types['128k'] = { size: '3MB' };
+        }
+
+        // 合并原有的 _types (如果有更详细的 hash 信息)
+        if (song._types && typeof song._types === 'object') {
+            for (let k in song._types) {
+                if (song._types[k]) clean_Types[k] = song._types[k];
+            }
+        }
+
+        // 酷狗独立 HASH 修复
         let kgHash = String(song.FileHash || song.hash || coreId);
         if (source === 'kg') {
-            types.forEach(t => {
-                t.hash = String(t.hash || kgHash);
-            });
-            Object.keys(_types).forEach(k => {
-                _types[k].hash = String(_types[k].hash || kgHash);
-            });
+            cleanTypes.forEach(t => { t.hash = String(t.hash || kgHash); });
+            Object.keys(clean_Types).forEach(k => { clean_Types[k].hash = String(clean_Types[k].hash || kgHash); });
         }
 
         let data = {
@@ -233,8 +252,8 @@ class MusicBot extends EventEmitter {
             albumId: String(song.albumId || song.albumid || song.album_id || ''),
             albumName: String(song.albumName || song.album || song.remark || ''),
             img: String(song.img || song.pic || ''),
-            types: types,
-            _types: _types,
+            types: cleanTypes,   // 必须为对象数组
+            _types: clean_Types, // 必须为键值对
             meta: {
                 songId: coreId,
                 albumName: String(song.albumName || song.album || song.remark || ''),
